@@ -54,9 +54,8 @@ void net_processing(struct commarg *arg)
 	int lsock, sock, sysret;
 	unsigned long numpkts;
 	char *buf;
-	int curlen, maxlen;
-	struct pollfd pfd;
-	static const struct timespec itv = {.tv_sec = 0, .tv_nsec = 200000000};
+	int curlen, maxlen, err;
+	struct pollfd pfd, pfd1;
 
 	lsock = prepare_net(arg->port);
 	if (lsock < 0) {
@@ -129,6 +128,9 @@ void net_processing(struct commarg *arg)
 		goto exit_20;
 	}
 
+	err = 0;
+	pfd1.fd = arg->dstfd;
+	pfd1.events = POLLOUT;
 	do {
 		curlen = recv(sock, buf, maxlen, MSG_DONTWAIT);
 		if (curlen == -1) {
@@ -137,14 +139,30 @@ void net_processing(struct commarg *arg)
 						numpkts, strerror(errno));
 				break;
 			}
-			fprintf(stderr, "Player drained out.\n");
-			nanosleep(&itv, NULL);
+			do
+				sysret = poll(&pfd, 1, 500);
+			while (sysret == 0 && *arg->g_exit == 0);
+			if (sysret == -1) {
+				err = 1;
+				fprintf(stderr, "poll sock receive failed: %s\n",
+						strerror(errno));
+				break;
+			}
 			continue;
 		} else if (curlen == 0 || *arg->g_exit != 0)
 			break;
 
 		numpkts += curlen;
 		do {
+			sysret = poll(&pfd1, 1, 500);
+			if (sysret == 0)
+				continue;
+			else if (sysret == -1) {
+				fprintf(stderr, "pipe poll failed: %s\n",
+						strerror(errno));
+				err = 1;
+				break;
+			}
 			sysret = write(arg->dstfd, buf, curlen);
 			if (sysret == -1) {
 				if (errno == EINTR)
@@ -155,7 +173,7 @@ void net_processing(struct commarg *arg)
 			}
 			curlen -= sysret;
 		} while(curlen > 0 && *arg->g_exit == 0);
-	} while (*arg->g_exit == 0);
+	} while (*arg->g_exit == 0 && err == 0);
 
 exit_30:
 	printf("Total number of bytes received: %lu\n", numpkts);
