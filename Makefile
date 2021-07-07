@@ -6,7 +6,7 @@ LDFLAGS += -pthread
 
 .PHONY: all clean
 
-all: gstu netdisp netplay
+all: netfile netdisp netplay
 
 netdisp: net-gst-display.o netproc.o
 	$(LINK.o) $^ $(LIBS) -o $@
